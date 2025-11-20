@@ -289,20 +289,34 @@
             }
         };
 
-        // --- Environment ---
-        // Materials
-        const grassTex = TextureGenerator.createGrass();
-        grassTex.repeat.set(50, 50);
-        const groundMat = new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1.0 });
+        // --- Textures (Online Assets) ---
+        const texLoader = new THREE.TextureLoader();
+        const loadTex = (url) => {
+            const tex = texLoader.load(url);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        };
 
-        const barkTex = TextureGenerator.createBark();
-        const woodMat = new THREE.MeshStandardMaterial({ map: barkTex, roughness: 0.9 });
-        const leafMat = new THREE.MeshStandardMaterial({ color: 0x228822, roughness: 0.8 });
-        const stoneMat = new THREE.MeshStandardMaterial({ map: TextureGenerator.createStone(), roughness: 0.6 });
+        // Fallback to procedural if offline, but try loading first
+        const grassTex = loadTex('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/terrain/grasslight-big.jpg');
+        grassTex.repeat.set(50, 50);
+
+        const stoneTex = loadTex('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/brick_diffuse.jpg');
+        stoneTex.repeat.set(2, 2);
+
+        const barkTex = loadTex('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/hardwood2_diffuse.jpg');
+        barkTex.repeat.set(1, 4);
+
+        // Materials
+        const grassMat = new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1.0 });
+        const stoneMat = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.9 });
+        const barkMat = new THREE.MeshStandardMaterial({ map: barkTex, roughness: 0.9 });
+        const leafMat = new THREE.MeshStandardMaterial({ color: 0x228b22, roughness: 0.8 }); // Keep procedural color for leaves
+        const woodMat = new THREE.MeshStandardMaterial({ map: barkTex, roughness: 0.8 });
 
         // Ground
         const floorGeo = new THREE.PlaneGeometry(400, 400);
-        const floor = new THREE.Mesh(floorGeo, groundMat);
+        const floor = new THREE.Mesh(floorGeo, grassMat);
         floor.rotation.x = -Math.PI / 2;
         floor.receiveShadow = true;
         scene.add(floor);
@@ -317,57 +331,59 @@
             buildings.length = 0;
 
             // Trees
-            const treeGeo = new THREE.CylinderGeometry(0.5, 0.8, 4);
-            const leavesGeo = new THREE.ConeGeometry(3, 6);
-
-            for (let i = 0; i < 100; i++) {
+            const treeGeo = new THREE.CylinderGeometry(0.5, 1, 4);
+            const foliageGeo = new THREE.ConeGeometry(3, 6, 8);
+            for (let i = 0; i < 400; i++) { // Increased density
                 const x = (Math.random() - 0.5) * 300;
                 const z = (Math.random() - 0.5) * 300;
-                if (Math.abs(x) < 10 && Math.abs(z) < 10) continue; // Spawn area
+                if (Math.abs(x) < 10 && Math.abs(z) < 10) continue;
 
-                const tree = new THREE.Group();
-                const trunk = new THREE.Mesh(treeGeo, woodMat);
-                trunk.position.y = 2;
+                const trunk = new THREE.Mesh(treeGeo, barkMat);
+                trunk.position.set(x, 2, z);
                 trunk.castShadow = true;
-                trunk.receiveShadow = true;
 
-                const leaves = new THREE.Mesh(leavesGeo, leafMat);
-                leaves.position.y = 5;
-                leaves.castShadow = true;
-                leaves.receiveShadow = true;
+                const foliage = new THREE.Mesh(foliageGeo, leafMat); // Changed to leafMat for consistency
+                foliage.position.set(0, 4, 0);
+                trunk.add(foliage);
 
-                tree.add(trunk, leaves);
-                tree.position.set(x, 0, z);
+                cityGroup.add(trunk);
 
-                // Scale variation
-                const s = 0.8 + Math.random() * 0.5;
-                tree.scale.set(s, s, s);
-
-                cityGroup.add(tree);
-
-                // Collision (Trunk only)
-                const box = new THREE.Box3();
-                box.setFromCenterAndSize(new THREE.Vector3(x, 2 * s, z), new THREE.Vector3(1.5 * s, 10 * s, 1.5 * s));
+                const box = new THREE.Box3().setFromObject(trunk);
+                box.expandByScalar(0.5); // Bigger collision
                 buildings.push(box);
             }
 
             // Rocks
             const rockGeo = new THREE.DodecahedronGeometry(1);
-            for (let i = 0; i < 50; i++) {
+            for (let i = 0; i < 200; i++) { // Increased density
                 const x = (Math.random() - 0.5) * 300;
                 const z = (Math.random() - 0.5) * 300;
                 if (Math.abs(x) < 5 && Math.abs(z) < 5) continue;
 
                 const rock = new THREE.Mesh(rockGeo, stoneMat);
-                const s = 1 + Math.random() * 3;
+                const s = 1 + Math.random() * 4;
                 rock.scale.set(s, s * 0.7, s);
                 rock.position.set(x, s * 0.3, z);
                 rock.rotation.set(Math.random(), Math.random(), Math.random());
                 rock.castShadow = true;
-                rock.receiveShadow = true;
 
                 cityGroup.add(rock);
                 buildings.push(new THREE.Box3().setFromObject(rock));
+            }
+
+            // Ruins (New Cover)
+            const wallGeo = new THREE.BoxGeometry(4, 6, 1);
+            for (let i = 0; i < 20; i++) {
+                const x = (Math.random() - 0.5) * 200;
+                const z = (Math.random() - 0.5) * 200;
+                if (Math.abs(x) < 20 && Math.abs(z) < 20) continue;
+
+                const wall = new THREE.Mesh(wallGeo, stoneMat);
+                wall.position.set(x, 3, z);
+                wall.rotation.y = Math.random() * Math.PI;
+                wall.castShadow = true;
+                cityGroup.add(wall);
+                buildings.push(new THREE.Box3().setFromObject(wall));
             }
 
             // Mountains (Border)
@@ -479,7 +495,19 @@
                 case 'ArrowLeft': case 'KeyA': moveState.left = true; break;
                 case 'ArrowDown': case 'KeyS': moveState.backward = true; break;
                 case 'ArrowRight': case 'KeyD': moveState.right = true; break;
-                case 'Space': if (state.isPlaying) velocity.y = CONFIG.PLAYER_JUMP; break;
+                case 'Space': moveState.jump = true; break;
+                case 'ShiftLeft':
+                    if (!state.isDashing && state.dashCooldown <= 0) {
+                        state.isDashing = true;
+                        state.dashTime = 0.2;
+                        state.dashCooldown = 2;
+                        // Dash logic needs update for new movement
+                        const fwd = new THREE.Vector3();
+                        camera.getWorldDirection(fwd);
+                        fwd.y = 0; fwd.normalize();
+                        camera.position.add(fwd.multiplyScalar(5));
+                    }
+                    break;
             }
         };
 
@@ -489,6 +517,7 @@
                 case 'ArrowLeft': case 'KeyA': moveState.left = false; break;
                 case 'ArrowDown': case 'KeyS': moveState.backward = false; break;
                 case 'ArrowRight': case 'KeyD': moveState.right = false; break;
+                case 'Space': moveState.jump = false; break;
             }
         };
         document.addEventListener('keydown', onKeyDown);
@@ -569,21 +598,39 @@
             if (state.isPlaying) {
                 // Physics: Movement
                 if (controls.isLocked) {
-                    direction.z = Number(moveState.forward) - Number(moveState.backward);
-                    direction.x = Number(moveState.right) - Number(moveState.left);
-                    direction.normalize();
+                    // Movement (XZ Plane only)
+                    const forward = new THREE.Vector3();
+                    camera.getWorldDirection(forward);
+                    forward.y = 0;
+                    forward.normalize();
 
-                    // Acceleration
-                    if (moveState.forward || moveState.backward) velocity.z -= direction.z * 100.0 * dt;
-                    if (moveState.left || moveState.right) velocity.x -= direction.x * 100.0 * dt;
+                    const right = new THREE.Vector3();
+                    right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
 
-                    // Friction
-                    velocity.x -= velocity.x * 10.0 * dt;
-                    velocity.z -= velocity.z * 10.0 * dt;
+                    const moveSpeed = CONFIG.PLAYER_SPEED * dt;
 
-                    // Gravity
-                    velocity.y -= CONFIG.GRAVITY * dt;
+                    if (moveState.forward) camera.position.add(forward.clone().multiplyScalar(moveSpeed));
+                    if (moveState.backward) camera.position.add(forward.clone().multiplyScalar(-moveSpeed));
+                    if (moveState.right) camera.position.add(right.clone().multiplyScalar(moveSpeed));
+                    if (moveState.left) camera.position.add(right.clone().multiplyScalar(-moveSpeed));
 
+                    // Physics Update
+                    camera.position.y += velocity.y * dt;
+
+                    // Ground Collision
+                    if (camera.position.y < 1.6) {
+                        camera.position.y = 1.6;
+                        velocity.y = 0;
+                        state.isGrounded = true;
+                    } else {
+                        state.isGrounded = false;
+                    }
+
+                    // Jump
+                    if (moveState.jump && state.isGrounded) {
+                        velocity.y = CONFIG.PLAYER_JUMP;
+                        state.isGrounded = false;
+                    }
                     // Apply Movement with Collision (X and Z separately for sliding)
                     const originalPos = camera.position.clone();
 
@@ -891,11 +938,20 @@
 
                 // Stats
                 if (type === 'runner') {
-                    this.hp = 30; this.speed = 8; this.color = 0x556B2F; this.scale = 1; this.dmg = 10; // Olive Green
+                    this.hp = 30;
+                    this.speed = 5; // Nerfed from 8
+                    this.color = 0x556B2F; // Olive Green
+                    this.scale = 1; this.dmg = 10;
                 } else if (type === 'tank') {
-                    this.hp = 100; this.speed = 3; this.color = 0x8B4513; this.scale = 2; this.dmg = 20; // Saddle Brown
-                } else { // shooter
-                    this.hp = 50; this.speed = 5; this.color = 0x708090; this.scale = 1.2; this.dmg = 15; // Slate Grey
+                    this.hp = 150; // Changed from 100
+                    this.speed = 2; // Nerfed from 3
+                    this.color = 0x8B4513; // Saddle Brown
+                    this.scale = 2; this.dmg = 20;
+                } else if (type === 'shooter') { // Changed from 'else'
+                    this.hp = 50;
+                    this.speed = 3; // Nerfed from 5
+                    this.color = 0x708090; // Slate Grey
+                    this.scale = 1.2; this.dmg = 15;
                 }
 
                 // Mesh Construction
