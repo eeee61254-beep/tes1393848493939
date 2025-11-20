@@ -497,16 +497,18 @@
                 case 'ArrowDown': case 'KeyS': moveState.backward = true; break;
                 case 'ArrowRight': case 'KeyD': moveState.right = true; break;
                 case 'Space': moveState.jump = true; break;
+                case 'KeyQ':
+                    if (state.grenadeCooldown <= 0) {
+                        const gren = new Grenade(camera.position.clone(), camera.getWorldDirection(new THREE.Vector3()));
+                        projectiles.push(gren);
+                        state.grenadeCooldown = 5;
+                    }
+                    break;
                 case 'ShiftLeft':
                     if (!state.isDashing && state.dashCooldown <= 0) {
                         state.isDashing = true;
                         state.dashTime = 0.2;
                         state.dashCooldown = 2;
-                        // Dash logic needs update for new movement
-                        const fwd = new THREE.Vector3();
-                        camera.getWorldDirection(fwd);
-                        fwd.y = 0; fwd.normalize();
-                        camera.position.add(fwd.multiplyScalar(5));
                     }
                     break;
             }
@@ -615,77 +617,101 @@
                     if (moveState.right) camera.position.add(right.clone().multiplyScalar(moveSpeed));
                     if (moveState.left) camera.position.add(right.clone().multiplyScalar(-moveSpeed));
 
-                    // Physics Update
+                    // Physics (Gravity)
+                    velocity.y -= CONFIG.GRAVITY * dt;
                     camera.position.y += velocity.y * dt;
 
-                    // Ground Collision
+                    // Ground Collision (Raycast)
+                    const raycaster = new THREE.Raycaster(camera.position, new THREE.Vector3(0, -1, 0), 0, 2.0);
+                    const groundHits = raycaster.intersectObjects(scene.children.filter(o => o !== camera && !o.userData.isEnemy && !o.userData.isBullet));
+
+                    // Simple floor check fallback
                     if (camera.position.y < 1.6) {
                         camera.position.y = 1.6;
+                        velocity.y = 0;
+                        state.isGrounded = true;
+                    } else if (groundHits.length > 0) {
+                        // Land on object
+                        camera.position.y = groundHits[0].point.y + 1.6;
                         velocity.y = 0;
                         state.isGrounded = true;
                     } else {
                         state.isGrounded = false;
                     }
-
-                    // Jump
-                    if (moveState.jump && state.isGrounded) {
-                        velocity.y = CONFIG.PLAYER_JUMP;
-                        state.isGrounded = false;
-                    }
-                    // Apply Movement with Collision (X and Z separately for sliding)
-                    const originalPos = camera.position.clone();
-
-                    // X Axis
-                    controls.moveRight(-velocity.x * dt);
-                    if (checkCollision(camera.position)) {
-                        camera.position.x = originalPos.x;
-                        velocity.x = 0;
-                    }
-
-                    // Z Axis
-                    const posAfterX = camera.position.clone();
-                    controls.moveForward(-velocity.z * dt);
-                    if (checkCollision(camera.position)) {
-                        camera.position.z = posAfterX.z;
-                        velocity.z = 0;
-                    }
-
-                    // Y Axis
-                    camera.position.y += velocity.y * dt;
-                    if (camera.position.y < 1.6) {
-                        velocity.y = 0;
-                        camera.position.y = 1.6;
-                    }
-
-                    // Weapon Sway & Bob
-                    sway.currentX += (sway.targetX - sway.currentX) * 10 * dt;
-                    sway.currentY += (sway.targetY - sway.currentY) * 10 * dt;
-                    gunGroup.position.x = 0.2 + sway.currentX;
-                    gunGroup.position.y = -0.2 + sway.currentY + Math.sin(time * 0.01) * 0.005 * (Math.abs(velocity.x) + Math.abs(velocity.z) > 1 ? 5 : 1);
-                    sway.targetX = 0;
-                    sway.targetY = 0;
-
-                    // Recoil Recovery (Gentle return to center)
-                    // We can't easily distinguish recoil from looking up/down without a separate recoil offset variable.
-                    // But for now, let's just dampen the pitch slightly if it's extreme? No, that fights the user.
-                    // The previous "return to 0" logic was bad.
-                    // Let's just skip auto-recovery for now as it's complex to get right without a separate recoil vector.
-                    // Or, we can just let the user compensate.
+                    state.isGrounded = false;
                 }
 
-                // Projectiles
-                updateProjectiles(dt);
-                updateEnemies(dt);
-                updateXP(dt);
+                // Jump
+                if (moveState.jump && state.isGrounded) {
+                    velocity.y = CONFIG.PLAYER_JUMP;
+                    state.isGrounded = false;
+                }
 
-                // UI Updates
-                const dashCd = Math.max(0, 3000 - (Date.now() - lastDash));
-                const grenadeCd = Math.max(0, 5000 - (Date.now() - lastGrenade));
-                document.getElementById('dash-cooldown').style.height = `${(dashCd / 3000) * 100}%`;
-                document.getElementById('grenade-cooldown').style.height = `${(grenadeCd / 5000) * 100}%`;
+                // Dash Logic
+                if (state.isDashing) {
+                    state.dashTime -= dt;
+                    const fwd = new THREE.Vector3();
+                    camera.getWorldDirection(fwd);
+                    fwd.y = 0; fwd.normalize();
+                    camera.position.add(fwd.multiplyScalar(20 * dt)); // Smooth dash
+
+                    if (state.dashTime <= 0) state.isDashing = false;
+                }
+                if (state.dashCooldown > 0) state.dashCooldown -= dt;
+                // Apply Movement with Collision (X and Z separately for sliding)
+                const originalPos = camera.position.clone();
+
+                // X Axis
+                controls.moveRight(-velocity.x * dt);
+                if (checkCollision(camera.position)) {
+                    camera.position.x = originalPos.x;
+                    velocity.x = 0;
+                }
+
+                // Z Axis
+                const posAfterX = camera.position.clone();
+                controls.moveForward(-velocity.z * dt);
+                if (checkCollision(camera.position)) {
+                    camera.position.z = posAfterX.z;
+                    velocity.z = 0;
+                }
+
+                // Y Axis
+                camera.position.y += velocity.y * dt;
+                if (camera.position.y < 1.6) {
+                    velocity.y = 0;
+                    camera.position.y = 1.6;
+                }
+
+                // Weapon Sway & Bob
+                sway.currentX += (sway.targetX - sway.currentX) * 10 * dt;
+                sway.currentY += (sway.targetY - sway.currentY) * 10 * dt;
+                gunGroup.position.x = 0.2 + sway.currentX;
+                gunGroup.position.y = -0.2 + sway.currentY + Math.sin(time * 0.01) * 0.005 * (Math.abs(velocity.x) + Math.abs(velocity.z) > 1 ? 5 : 1);
+                sway.targetX = 0;
+                sway.targetY = 0;
+
+                // Recoil Recovery (Gentle return to center)
+                // We can't easily distinguish recoil from looking up/down without a separate recoil offset variable.
+                // But for now, let's just dampen the pitch slightly if it's extreme? No, that fights the user.
+                // The previous "return to 0" logic was bad.
+                // Let's just skip auto-recovery for now as it's complex to get right without a separate recoil vector.
+                // Or, we can just let the user compensate.
             }
 
-            renderer.render(scene, camera);
+            // Projectiles
+            updateProjectiles(dt);
+            updateEnemies(dt);
+            updateXP(dt);
+
+            // UI Updates
+            const dashCd = Math.max(0, 3000 - (Date.now() - lastDash));
+            const grenadeCd = Math.max(0, 5000 - (Date.now() - lastGrenade));
+            document.getElementById('dash-cooldown').style.height = `${(dashCd / 3000) * 100}%`;
+            document.getElementById('grenade-cooldown').style.height = `${(grenadeCd / 5000) * 100}%`;
+        }
+
+        renderer.render(scene, camera);
         }
 
         // --- Combat System ---
@@ -992,6 +1018,10 @@
                 if (!this.active) return;
 
                 const dist = this.group.position.distanceTo(playerPos);
+
+                // Update Animation
+                if (this.mixer) this.mixer.update(dt);
+
                 const stopDist = this.type === 'shooter' ? 10 : 1.5;
 
                 if (dist > stopDist) {
